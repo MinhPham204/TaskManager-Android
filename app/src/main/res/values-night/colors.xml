@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark Mode Backgrounds -->
+    <color name="background">#121212</color>
+    <color name="surface">#1E1E1E</color>
+    <color name="task_card_background">#1E1E1E</color>
+    <color name="task_completed_background">#2C2C2C</color>
+    
+    <!-- Theme overrides for Dark Mode -->
+    <color name="primary">#BB86FC</color>
+    <color name="primary_dark">#3700B3</color>
+    <color name="primary_variant">#7C4DFF</color>
+    <color name="accent">#FF4081</color>
+    <color name="secondary">#03DAC6</color>
+    
+    <!-- Text overrides -->
+    <color name="text_primary">#E0E0E0</color>
+    <color name="text_secondary">#A0A0A0</color>
+    
+    <!-- Statistics panel colors -->
+    <color name="stat_item_background">#252525</color>
+    <color name="stat_completed_background">#1C3B25</color>
+    <color name="stat_completed_text">#81C784</color>
+    <color name="stat_pending_background">#4A3C15</color>
+    <color name="stat_pending_text">#FFD54F</color>
+    <color name="stat_overdue_background">#4A1519</color>
+    <color name="stat_overdue_text">#E57373</color>
+    <color name="divider">#333333</color>
+
+    <!-- Extra widget styling -->
+    <color name="quote_background">#2C2C2C</color>
+    <color name="welcome_gradient_start">#121212</color>
+    <color name="welcome_gradient_end">#1E1E1E</color>
+</resources>
+
