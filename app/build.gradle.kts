@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace = "me.zubair.taskmanager"
+    namespace = "me.taskmanager"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "me.zubair.taskmanager"
+        applicationId = "me.taskmanager"
         minSdk = 21
         targetSdk = 34
         versionCode = 1
@@ -38,6 +38,8 @@ dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.cardview:cardview:1.0.0")
     implementation("androidx.lifecycle:lifecycle-extensions:2.2.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel:2.6.2")
+    implementation("androidx.lifecycle:lifecycle-livedata:2.6.2")
 
     // Testing dependencies
     testImplementation("junit:junit:4.13.2")
