@@ -48,6 +48,7 @@ public class NotificationService extends Service {
     private ProjectRepository projectRepository;
     private UserPreferencesManager preferencesManager;
     private Map<Long, MediaPlayer> activeAlarms = new HashMap<>();
+    private Map<Long, Long> dismissedAlarms = new HashMap<>(); // Tracks taskId -> last dismissed due date
     private PowerManager.WakeLock wakeLock;
 
     @Override
@@ -83,6 +84,12 @@ public class NotificationService extends Service {
             if (taskId != -1) {
                 Log.d(TAG, "Dismissing alarm for task: " + taskId);
                 stopAlarmSound(taskId);
+                
+                // Track this task's due date as dismissed
+                Task task = taskRepository.getTaskById(taskId);
+                if (task != null) {
+                    dismissedAlarms.put(taskId, task.getDueDate());
+                }
 
                 // Cancel the notification
                 NotificationManager notificationManager =
@@ -161,6 +168,11 @@ public class NotificationService extends Service {
             long oneHourAgo = currentTime - (60 * 60 * 1000);
             for (Task task : taskRepository.getTasksDueBetween(oneHourAgo, currentTime)) {
                 if (!task.isCompleted()) {
+                    // Skip if the user has already dismissed the alarm for this specific due date
+                    Long lastDismissedDue = dismissedAlarms.get(task.getId());
+                    if (lastDismissedDue != null && lastDismissedDue == task.getDueDate()) {
+                        continue;
+                    }
                     // Check task relevance
                     if (task.getAssignedUserId() != null) {
                         if (task.getAssignedUserId() != currentUserId) {
@@ -349,10 +361,11 @@ public class NotificationService extends Service {
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Task Manager")
-                .setContentText("Monitoring for upcoming tasks")
+                .setContentText("Task Manager đang theo dõi deadline")
                 .setSmallIcon(android.R.drawable.ic_popup_reminder) // Using system icon to ensure it exists
                 .setContentIntent(pendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true)  // Keep it persistent
                 .build();
     }
 

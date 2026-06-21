@@ -94,7 +94,7 @@ public class InvitationRepository {
                 "u." + UserContract.UserEntry.COLUMN_FULL_NAME + " AS sender_full_name, " +
                 "u." + UserContract.UserEntry.COLUMN_USERNAME + " AS sender_username " +
                 "FROM " + InvitationContract.InvitationEntry.TABLE_NAME + " i " +
-                "INNER JOIN " + ProjectContract.ProjectEntry.TABLE_NAME + " p ON i." + InvitationContract.InvitationEntry.COLUMN_PROJECT_ID + " = p." + ProjectContract.ProjectEntry._ID +
+                "INNER JOIN " + ProjectContract.ProjectEntry.TABLE_NAME + " p ON i." + InvitationContract.InvitationEntry.COLUMN_PROJECT_ID + " = p." + ProjectContract.ProjectEntry._ID + " " +
                 "INNER JOIN " + UserContract.UserEntry.TABLE_NAME + " u ON i." + InvitationContract.InvitationEntry.COLUMN_SENDER_ID + " = u." + UserContract.UserEntry._ID +
                 " WHERE i." + InvitationContract.InvitationEntry.COLUMN_RECEIVER_ID + " = ? " +
                 "AND i." + InvitationContract.InvitationEntry.COLUMN_STATUS + " = 'PENDING' " +

@@ -81,16 +81,11 @@ public class CalendarFragment extends Fragment implements TaskAdapter.OnTaskClic
 
         rvTasks.setLayoutManager(new LinearLayoutManager(requireContext()));
 
-        // Setup Month & Year Calendar defaults to June 2026
+        // Setup Month & Year Calendar defaults to current month and today
         currentMonthCal = Calendar.getInstance();
-        currentMonthCal.set(Calendar.YEAR, 2026);
-        currentMonthCal.set(Calendar.MONTH, Calendar.JUNE);
         currentMonthCal.set(Calendar.DAY_OF_MONTH, 1);
 
-        selectedDateCal = Calendar.getInstance();
-        selectedDateCal.set(Calendar.YEAR, 2026);
-        selectedDateCal.set(Calendar.MONTH, Calendar.JUNE);
-        selectedDateCal.set(Calendar.DAY_OF_MONTH, 7); // Default highlighted day
+        selectedDateCal = Calendar.getInstance(); // Defaults to today
 
         // Wires month navigation listeners
         btnPrevMonth.setOnClickListener(v -> changeMonth(-1));

@@ -172,8 +172,13 @@ public class EditTaskFragment extends Fragment {
         etTitle.setText(currentTask.getTitle());
         etDescription.setText(currentTask.getDescription());
         
-        // Set the calendar to the task's due date
-        calendar.setTimeInMillis(currentTask.getDueDate());
+        // Set the calendar to the task's due date if set, otherwise default to current time
+        long dueDate = currentTask.getDueDate();
+        if (dueDate > 0) {
+            calendar.setTimeInMillis(dueDate);
+        } else {
+            calendar.setTimeInMillis(System.currentTimeMillis());
+        }
         updateDateTimeButtons();
         
         // Set priority
