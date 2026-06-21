@@ -7,6 +7,7 @@ import android.os.Looper;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
+import androidx.lifecycle.MediatorLiveData;
 import androidx.lifecycle.MutableLiveData;
 
 import java.util.List;
@@ -26,6 +27,24 @@ import me.taskmanager.utils.FileHelper;
 
 public class ProjectDetailsViewModel extends AndroidViewModel {
 
+    public static class ProjectMembersState {
+        private final String role;
+        private final List<User> members;
+
+        public ProjectMembersState(String role, List<User> members) {
+            this.role = role;
+            this.members = members;
+        }
+
+        public String getRole() {
+            return role;
+        }
+
+        public List<User> getMembers() {
+            return members;
+        }
+    }
+
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
     private final TaskRepository taskRepository;
@@ -38,6 +57,7 @@ public class ProjectDetailsViewModel extends AndroidViewModel {
     private final MutableLiveData<String> userRoleLiveData = new MutableLiveData<>();
     private final MutableLiveData<List<User>> membersLiveData = new MutableLiveData<>();
     private final MutableLiveData<List<Task>> tasksLiveData = new MutableLiveData<>();
+    private final MediatorLiveData<ProjectMembersState> projectMembersStateLiveData = new MediatorLiveData<>();
     
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
@@ -54,6 +74,19 @@ public class ProjectDetailsViewModel extends AndroidViewModel {
         this.invitationRepository = new InvitationRepository(application);
         this.preferencesManager = new UserPreferencesManager(application);
         this.fileHelper = new FileHelper();
+
+        projectMembersStateLiveData.addSource(userRoleLiveData, role -> {
+            List<User> members = membersLiveData.getValue();
+            if (role != null && members != null) {
+                projectMembersStateLiveData.setValue(new ProjectMembersState(role, members));
+            }
+        });
+        projectMembersStateLiveData.addSource(membersLiveData, members -> {
+            String role = userRoleLiveData.getValue();
+            if (role != null && members != null) {
+                projectMembersStateLiveData.setValue(new ProjectMembersState(role, members));
+            }
+        });
     }
 
     public LiveData<Project> getProjectLiveData() {
@@ -70,6 +103,10 @@ public class ProjectDetailsViewModel extends AndroidViewModel {
 
     public LiveData<List<Task>> getTasksLiveData() {
         return tasksLiveData;
+    }
+
+    public LiveData<ProjectMembersState> getProjectMembersStateLiveData() {
+        return projectMembersStateLiveData;
     }
 
     public long getCurrentUserId() {

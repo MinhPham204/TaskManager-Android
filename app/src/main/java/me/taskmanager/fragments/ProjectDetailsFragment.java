@@ -137,7 +137,11 @@ public class ProjectDetailsFragment extends Fragment {
             }
         });
 
-        projectDetailsViewModel.getUserRoleLiveData().observe(getViewLifecycleOwner(), role -> {
+        projectDetailsViewModel.getProjectMembersStateLiveData().observe(getViewLifecycleOwner(), state -> {
+            if (state == null) return;
+            String role = state.getRole();
+            List<User> members = state.getMembers();
+
             boolean isLeader = "Leader".equalsIgnoreCase(role);
             if (isLeader) {
                 cardActions.setVisibility(View.VISIBLE);
@@ -149,19 +153,6 @@ public class ProjectDetailsFragment extends Fragment {
                 btnAddTask.setVisibility(View.GONE);
             }
 
-            // Bind members adapter with leader state
-            List<User> members = projectDetailsViewModel.getMembersLiveData().getValue();
-            long currentUserId = projectDetailsViewModel.getCurrentUserId();
-            if (members != null) {
-                memberAdapter = new ProjectMemberAdapter(requireContext(), members, isLeader, currentUserId, this::confirmRemoveMember);
-                rvMembers.setAdapter(memberAdapter);
-            }
-        });
-
-        projectDetailsViewModel.getMembersLiveData().observe(getViewLifecycleOwner(), members -> {
-            if (members == null) return;
-            String role = projectDetailsViewModel.getUserRoleLiveData().getValue();
-            boolean isLeader = "Leader".equalsIgnoreCase(role);
             long currentUserId = projectDetailsViewModel.getCurrentUserId();
             memberAdapter = new ProjectMemberAdapter(requireContext(), members, isLeader, currentUserId, this::confirmRemoveMember);
             rvMembers.setAdapter(memberAdapter);
