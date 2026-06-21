@@ -25,27 +25,16 @@ import java.util.List;
 import me.taskmanager.R;
 import me.taskmanager.adapter.ProjectMemberAdapter;
 import me.taskmanager.adapter.TaskAdapter;
-import me.taskmanager.database.ProjectRepository;
-import me.taskmanager.database.TaskRepository;
-import me.taskmanager.database.UserRepository;
-import me.taskmanager.database.ActivityLogRepository;
-import me.taskmanager.database.InvitationRepository;
+import androidx.lifecycle.ViewModelProvider;
 import me.taskmanager.model.Project;
 import me.taskmanager.model.Task;
 import me.taskmanager.model.User;
-import me.taskmanager.preferences.UserPreferencesManager;
-import me.taskmanager.utils.FileHelper;
+import me.taskmanager.viewmodel.ProjectDetailsViewModel;
 
 public class ProjectDetailsFragment extends Fragment {
 
     private long projectId = -1;
-    private ProjectRepository projectRepository;
-    private UserRepository userRepository;
-    private TaskRepository taskRepository;
-    private ActivityLogRepository activityLogRepository;
-    private InvitationRepository invitationRepository;
-    private UserPreferencesManager preferencesManager;
-    private FileHelper fileHelper;
+    private ProjectDetailsViewModel projectDetailsViewModel;
     private Project currentProject;
 
     private ImageButton btnBack;
@@ -92,13 +81,8 @@ public class ProjectDetailsFragment extends Fragment {
             projectId = getArguments().getLong("PROJECT_ID");
         }
 
-        projectRepository = new ProjectRepository(requireContext());
-        userRepository = new UserRepository(requireContext());
-        taskRepository = new TaskRepository(requireContext());
-        activityLogRepository = new ActivityLogRepository(requireContext());
-        invitationRepository = new InvitationRepository(requireContext());
-        preferencesManager = new UserPreferencesManager(requireContext());
-        fileHelper = new FileHelper();
+        // Setup ViewModel
+        projectDetailsViewModel = new ViewModelProvider(this).get(ProjectDetailsViewModel.class);
 
         // Bind Views
         btnBack = view.findViewById(R.id.btn_back);
@@ -125,6 +109,96 @@ public class ProjectDetailsFragment extends Fragment {
 
         rvTasks.setLayoutManager(new LinearLayoutManager(requireContext()));
 
+        // Observers
+        projectDetailsViewModel.getProjectLiveData().observe(getViewLifecycleOwner(), project -> {
+            if (project == null) {
+                Toast.makeText(requireContext(), "Project not found", Toast.LENGTH_SHORT).show();
+                navigateBack();
+                return;
+            }
+            currentProject = project;
+            tvProjectTitle.setText(project.getName());
+            tvProjectStatus.setText(project.getStatus());
+            
+            if (project.getDescription() != null && !project.getDescription().isEmpty()) {
+                tvProjectDescription.setText(project.getDescription());
+            } else {
+                tvProjectDescription.setText("No description provided.");
+            }
+
+            if (project.getCreatedAt() != null) {
+                String date = project.getCreatedAt();
+                if (date.length() >= 10) {
+                    date = date.substring(0, 10);
+                }
+                tvProjectCreatedAt.setText("Created on " + date);
+            } else {
+                tvProjectCreatedAt.setText("Created on unknown date");
+            }
+        });
+
+        projectDetailsViewModel.getUserRoleLiveData().observe(getViewLifecycleOwner(), role -> {
+            boolean isLeader = "Leader".equalsIgnoreCase(role);
+            if (isLeader) {
+                cardActions.setVisibility(View.VISIBLE);
+                layoutAddMember.setVisibility(View.VISIBLE);
+                btnAddTask.setVisibility(View.VISIBLE);
+            } else {
+                cardActions.setVisibility(View.GONE);
+                layoutAddMember.setVisibility(View.GONE);
+                btnAddTask.setVisibility(View.GONE);
+            }
+
+            // Bind members adapter with leader state
+            List<User> members = projectDetailsViewModel.getMembersLiveData().getValue();
+            long currentUserId = projectDetailsViewModel.getCurrentUserId();
+            if (members != null) {
+                memberAdapter = new ProjectMemberAdapter(requireContext(), members, isLeader, currentUserId, this::confirmRemoveMember);
+                rvMembers.setAdapter(memberAdapter);
+            }
+        });
+
+        projectDetailsViewModel.getMembersLiveData().observe(getViewLifecycleOwner(), members -> {
+            if (members == null) return;
+            String role = projectDetailsViewModel.getUserRoleLiveData().getValue();
+            boolean isLeader = "Leader".equalsIgnoreCase(role);
+            long currentUserId = projectDetailsViewModel.getCurrentUserId();
+            memberAdapter = new ProjectMemberAdapter(requireContext(), members, isLeader, currentUserId, this::confirmRemoveMember);
+            rvMembers.setAdapter(memberAdapter);
+        });
+
+        projectDetailsViewModel.getTasksLiveData().observe(getViewLifecycleOwner(), tasks -> {
+            if (tasks == null) return;
+            if (tasks.isEmpty()) {
+                tvNoTasks.setVisibility(View.VISIBLE);
+                rvTasks.setVisibility(View.GONE);
+            } else {
+                tvNoTasks.setVisibility(View.GONE);
+                rvTasks.setVisibility(View.VISIBLE);
+                
+                taskAdapter = new TaskAdapter(requireContext(), tasks, new TaskAdapter.OnTaskClickListener() {
+                    @Override
+                    public void onTaskClick(Task task) {
+                        TaskDetailsFragment detailsFragment = new TaskDetailsFragment();
+                        Bundle args = new Bundle();
+                        args.putLong("TASK_ID", task.getId());
+                        detailsFragment.setArguments(args);
+                        
+                        getParentFragmentManager().beginTransaction()
+                                .replace(R.id.fragment_container, detailsFragment)
+                                .addToBackStack(null)
+                                .commit();
+                    }
+
+                    @Override
+                    public void onTaskLongClick(Task task, View view) {
+                        showTaskOptionsMenu(task, view);
+                    }
+                });
+                rvTasks.setAdapter(taskAdapter);
+            }
+        });
+
         // Listeners
         btnBack.setOnClickListener(v -> navigateBack());
         
@@ -148,82 +222,8 @@ public class ProjectDetailsFragment extends Fragment {
     }
 
     public void refreshDetails() {
-        currentProject = projectRepository.getProjectById(projectId);
-        if (currentProject == null) {
-            Toast.makeText(requireContext(), "Project not found", Toast.LENGTH_SHORT).show();
-            navigateBack();
-            return;
-        }
-
-        // Fill Details
-        tvProjectTitle.setText(currentProject.getName());
-        tvProjectStatus.setText(currentProject.getStatus());
-        
-        if (currentProject.getDescription() != null && !currentProject.getDescription().isEmpty()) {
-            tvProjectDescription.setText(currentProject.getDescription());
-        } else {
-            tvProjectDescription.setText("No description provided.");
-        }
-
-        if (currentProject.getCreatedAt() != null) {
-            String date = currentProject.getCreatedAt();
-            if (date.length() >= 10) {
-                date = date.substring(0, 10);
-            }
-            tvProjectCreatedAt.setText("Created on " + date);
-        } else {
-            tvProjectCreatedAt.setText("Created on unknown date");
-        }
-
-        // Role authorization check
-        long currentUserId = preferencesManager.getCurrentUserId();
-        String role = projectRepository.getMemberRole(projectId, currentUserId);
-        boolean isLeader = "Leader".equalsIgnoreCase(role);
-        
-        if (isLeader) {
-            cardActions.setVisibility(View.VISIBLE);
-            layoutAddMember.setVisibility(View.VISIBLE);
-            btnAddTask.setVisibility(View.VISIBLE);
-        } else {
-            cardActions.setVisibility(View.GONE);
-            layoutAddMember.setVisibility(View.GONE);
-            btnAddTask.setVisibility(View.GONE);
-        }
-
-        // Load project members
-        List<User> members = projectRepository.getMembersForProject(projectId);
-        memberAdapter = new ProjectMemberAdapter(requireContext(), members, isLeader, currentUserId, this::confirmRemoveMember);
-        rvMembers.setAdapter(memberAdapter);
-
-        // Load project tasks
-        List<Task> tasks = taskRepository.getTasksForProject(projectId);
-        if (tasks.isEmpty()) {
-            tvNoTasks.setVisibility(View.VISIBLE);
-            rvTasks.setVisibility(View.GONE);
-        } else {
-            tvNoTasks.setVisibility(View.GONE);
-            rvTasks.setVisibility(View.VISIBLE);
-            
-            taskAdapter = new TaskAdapter(requireContext(), tasks, new TaskAdapter.OnTaskClickListener() {
-                @Override
-                public void onTaskClick(Task task) {
-                    TaskDetailsFragment detailsFragment = new TaskDetailsFragment();
-                    Bundle args = new Bundle();
-                    args.putLong("TASK_ID", task.getId());
-                    detailsFragment.setArguments(args);
-                    
-                    getParentFragmentManager().beginTransaction()
-                            .replace(R.id.fragment_container, detailsFragment)
-                            .addToBackStack(null)
-                            .commit();
-                }
-
-                @Override
-                public void onTaskLongClick(Task task, View view) {
-                    showTaskOptionsMenu(task, view);
-                }
-            });
-            rvTasks.setAdapter(taskAdapter);
+        if (projectDetailsViewModel != null) {
+            projectDetailsViewModel.loadProjectDetails(projectId);
         }
     }
 
@@ -264,24 +264,12 @@ public class ProjectDetailsFragment extends Fragment {
     }
 
     private void deleteTask(Task task) {
-        try {
-            if (fileHelper != null) {
-                fileHelper.deleteTaskFiles(requireContext(), task.getId());
-            }
-            
-            long currentUserId = preferencesManager.getCurrentUserId();
-            activityLogRepository.insertLog(currentUserId, "deleted task: \"" + task.getTitle() + "\"", "Task", task.getId());
-
-            int result = taskRepository.deleteTask(task.getId());
-            if (result > 0) {
-                Toast.makeText(requireContext(), "Task deleted", Toast.LENGTH_SHORT).show();
+        projectDetailsViewModel.deleteTask(task, (success, message) -> {
+            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
+            if (success) {
                 refreshDetails();
-            } else {
-                Toast.makeText(requireContext(), "Error deleting task", Toast.LENGTH_SHORT).show();
             }
-        } catch (Exception e) {
-            Toast.makeText(requireContext(), "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
+        });
     }
 
     private void addMemberToProject() {
@@ -291,36 +279,13 @@ public class ProjectDetailsFragment extends Fragment {
             return;
         }
 
-        // 1. Verify User Exists
-        User targetUser = userRepository.getUserByUsername(usernameInput.toLowerCase());
-        if (targetUser == null) {
-            Toast.makeText(requireContext(), "User '" + usernameInput + "' not found", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        // 2. Verify Membership Conflict
-        boolean isAlreadyMember = projectRepository.isUserMemberOfProject(projectId, targetUser.getId());
-        if (isAlreadyMember) {
-            Toast.makeText(requireContext(), "User '" + usernameInput + "' is already a member of this project", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        // 3. Verify Pending Invitation Conflict
-        boolean isAlreadyInvited = invitationRepository.hasPendingInvitation(projectId, targetUser.getId());
-        if (isAlreadyInvited) {
-            Toast.makeText(requireContext(), "An invitation is already pending for this user", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        // 4. Send Invitation
-        long senderUserId = preferencesManager.getCurrentUserId();
-        long result = invitationRepository.insertInvitation(projectId, senderUserId, targetUser.getId());
-        if (result != -1) {
-            Toast.makeText(requireContext(), "Invitation sent to @" + usernameInput, Toast.LENGTH_SHORT).show();
-            etMemberUsername.setText("");
-        } else {
-            Toast.makeText(requireContext(), "Failed to send invitation", Toast.LENGTH_SHORT).show();
-        }
+        projectDetailsViewModel.addMember(projectId, usernameInput, (success, message) -> {
+            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
+            if (success) {
+                etMemberUsername.setText("");
+                refreshDetails();
+            }
+        });
     }
 
     private void confirmRemoveMember(User member) {
@@ -328,13 +293,12 @@ public class ProjectDetailsFragment extends Fragment {
                 .setTitle("Remove Member")
                 .setMessage("Are you sure you want to remove '" + member.getDisplayName() + "' from this project?")
                 .setPositiveButton("Remove", (dialog, which) -> {
-                    boolean success = projectRepository.removeMemberFromProject(projectId, member.getId());
-                    if (success) {
-                        Toast.makeText(requireContext(), "Removed '" + member.getDisplayName() + "'", Toast.LENGTH_SHORT).show();
-                        refreshDetails();
-                    } else {
-                        Toast.makeText(requireContext(), "Failed to remove member", Toast.LENGTH_SHORT).show();
-                    }
+                    projectDetailsViewModel.removeMember(projectId, member.getId(), (success, message) -> {
+                        Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
+                        if (success) {
+                            refreshDetails();
+                        }
+                    });
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
@@ -346,9 +310,12 @@ public class ProjectDetailsFragment extends Fragment {
                 .setTitle("Delete Project")
                 .setMessage("Are you sure you want to delete '" + currentProject.getName() + "'? This will permanently delete this project, all linked tasks, and all memberships.")
                 .setPositiveButton("Delete", (dialog, which) -> {
-                    projectRepository.deleteProject(projectId);
-                    Toast.makeText(requireContext(), "Project deleted", Toast.LENGTH_SHORT).show();
-                    navigateBack();
+                    projectDetailsViewModel.deleteProject(projectId, (success, message) -> {
+                        Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
+                        if (success) {
+                            navigateBack();
+                        }
+                    });
                 })
                 .setNegativeButton("Cancel", null)
                 .show();

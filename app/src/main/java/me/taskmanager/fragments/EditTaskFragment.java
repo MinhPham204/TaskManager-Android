@@ -27,14 +27,11 @@ import java.util.List;
 import java.util.Locale;
 
 import me.taskmanager.R;
-import me.taskmanager.database.ProjectRepository;
-import me.taskmanager.database.TaskRepository;
-import me.taskmanager.database.UserRepository;
-import me.taskmanager.database.ActivityLogRepository;
+import androidx.lifecycle.ViewModelProvider;
 import me.taskmanager.model.Project;
 import me.taskmanager.model.Task;
 import me.taskmanager.model.User;
-import me.taskmanager.preferences.UserPreferencesManager;
+import me.taskmanager.viewmodel.EditTaskViewModel;
 
 public class EditTaskFragment extends Fragment {
 
@@ -50,11 +47,7 @@ public class EditTaskFragment extends Fragment {
     private Spinner spinnerAssignee;
     private Spinner spinnerStatus;
 
-    private TaskRepository taskRepository;
-    private ProjectRepository projectRepository;
-    private UserRepository userRepository;
-    private ActivityLogRepository activityLogRepository;
-    private UserPreferencesManager preferencesManager;
+    private EditTaskViewModel editTaskViewModel;
 
     private Calendar calendar;
     private Task currentTask;
@@ -88,12 +81,6 @@ public class EditTaskFragment extends Fragment {
         // Update button text for edit mode
         btnUpdateTask.setText(R.string.update_task);
 
-        // Initialize other components
-        taskRepository = new TaskRepository(requireContext());
-        projectRepository = new ProjectRepository(requireContext());
-        userRepository = new UserRepository(requireContext());
-        activityLogRepository = new ActivityLogRepository(requireContext());
-        preferencesManager = new UserPreferencesManager(requireContext());
         calendar = Calendar.getInstance();
 
         return view;
@@ -103,41 +90,92 @@ public class EditTaskFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-        // Populate projects spinner
-        long currentUserId = preferencesManager.getCurrentUserId();
-        projectNames.clear();
-        projectIds.clear();
-        projectNames.add("General / None");
-        projectIds.add(0L);
-
-        List<Project> projects = projectRepository.getAllProjectsForUser(currentUserId);
-        for (Project p : projects) {
-            projectNames.add(p.getName());
-            projectIds.add(p.getId());
-        }
-
-        ArrayAdapter<String> projectAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, projectNames);
-        projectAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinnerProject.setAdapter(projectAdapter);
-
-        // Set up Project selector listener
-        spinnerProject.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (isPopulating) return; // Prevent overwriting during initial population
-                long selectedProjectId = projectIds.get(position);
-                updateAssignees(selectedProjectId);
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {}
-        });
+        // Setup ViewModel
+        editTaskViewModel = new ViewModelProvider(this).get(EditTaskViewModel.class);
 
         // Populate Status spinner
         String[] statuses = {"TODO", "IN PROGRESS", "DONE", "CANCELLED"};
         ArrayAdapter<String> statusAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, statuses);
         statusAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerStatus.setAdapter(statusAdapter);
+
+        // Setup Observers
+        editTaskViewModel.getProjectsLiveData().observe(getViewLifecycleOwner(), projects -> {
+            if (projects == null) return;
+            projectNames.clear();
+            projectIds.clear();
+            projectNames.add("General / None");
+            projectIds.add(0L);
+
+            for (Project p : projects) {
+                projectNames.add(p.getName());
+                projectIds.add(p.getId());
+            }
+
+            ArrayAdapter<String> projectAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, projectNames);
+            projectAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            spinnerProject.setAdapter(projectAdapter);
+
+            // Re-select project if task is loaded
+            if (currentTask != null) {
+                long projId = currentTask.getProjectId() != null ? currentTask.getProjectId() : 0L;
+                int projIdx = projectIds.indexOf(projId);
+                if (projIdx != -1) {
+                    spinnerProject.setSelection(projIdx);
+                }
+            }
+        });
+
+        editTaskViewModel.getMembersLiveData().observe(getViewLifecycleOwner(), members -> {
+            if (members == null) return;
+            assigneeNames.clear();
+            assigneeIds.clear();
+            assigneeNames.add("Unassigned");
+            assigneeIds.add(0L);
+
+            for (User u : members) {
+                assigneeNames.add(u.getFullName() + " (@" + u.getUsername() + ")");
+                assigneeIds.add(u.getId());
+            }
+
+            ArrayAdapter<String> assigneeAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, assigneeNames);
+            assigneeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            spinnerAssignee.setAdapter(assigneeAdapter);
+
+            // Re-select assignee if task is loaded
+            if (currentTask != null) {
+                long assId = currentTask.getAssignedUserId() != null ? currentTask.getAssignedUserId() : 0L;
+                int assIdx = assigneeIds.indexOf(assId);
+                if (assIdx != -1) {
+                    spinnerAssignee.setSelection(assIdx);
+                }
+            }
+        });
+
+        editTaskViewModel.getTaskLiveData().observe(getViewLifecycleOwner(), task -> {
+            if (task == null) {
+                Toast.makeText(requireContext(), R.string.task_not_found, Toast.LENGTH_SHORT).show();
+                navigateBack();
+                return;
+            }
+            currentTask = task;
+            populateTaskData();
+        });
+
+        // Set up Project selector listener
+        spinnerProject.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (isPopulating) return; // Prevent overwriting during initial population
+                if (position >= 0 && position < projectIds.size()) {
+                    long selectedProjectId = projectIds.get(position);
+                    updateAssignees(selectedProjectId);
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
 
         // Get task ID from arguments
         if (getArguments() != null && getArguments().containsKey("TASK_ID")) {
@@ -156,13 +194,7 @@ public class EditTaskFragment extends Fragment {
     }
 
     private void loadTask() {
-        currentTask = taskRepository.getTaskById(taskId);
-        if (currentTask != null) {
-            populateTaskData();
-        } else {
-            Toast.makeText(requireContext(), R.string.task_not_found, Toast.LENGTH_SHORT).show();
-            navigateBack();
-        }
+        editTaskViewModel.loadTaskAndProjects(taskId);
     }
 
     private void populateTaskData() {
@@ -225,23 +257,7 @@ public class EditTaskFragment extends Fragment {
     }
 
     private void updateAssignees(long projectId) {
-        assigneeNames.clear();
-        assigneeIds.clear();
-
-        assigneeNames.add("Unassigned");
-        assigneeIds.add(0L);
-
-        if (projectId > 0) {
-            List<User> members = projectRepository.getMembersForProject(projectId);
-            for (User u : members) {
-                assigneeNames.add(u.getFullName() + " (@" + u.getUsername() + ")");
-                assigneeIds.add(u.getId());
-            }
-        }
-
-        ArrayAdapter<String> assigneeAdapter = new ArrayAdapter<>(requireContext(), android.R.layout.simple_spinner_item, assigneeNames);
-        assigneeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinnerAssignee.setAdapter(assigneeAdapter);
+        editTaskViewModel.loadProjectMembers(projectId);
     }
 
     private void showDatePicker() {
@@ -335,15 +351,12 @@ public class EditTaskFragment extends Fragment {
         currentTask.setUpdatedAt(System.currentTimeMillis());
 
         // Save to database
-        int rowsAffected = taskRepository.updateTask(currentTask);
-        if (rowsAffected > 0) {
-            long currentUserId = preferencesManager.getCurrentUserId();
-            activityLogRepository.insertLog(currentUserId, "updated task: \"" + title + "\"", "Task", taskId);
-            Toast.makeText(requireContext(), R.string.task_updated_success, Toast.LENGTH_SHORT).show();
-            navigateToTaskDetails();
-        } else {
-            Toast.makeText(requireContext(), R.string.failed_update_task, Toast.LENGTH_SHORT).show();
-        }
+        editTaskViewModel.updateTask(currentTask, (success, message) -> {
+            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
+            if (success) {
+                navigateToTaskDetails();
+            }
+        });
     }
 
     private void navigateToTaskDetails() {

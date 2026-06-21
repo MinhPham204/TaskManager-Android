@@ -28,10 +28,9 @@ import java.util.Locale;
 import me.taskmanager.R;
 import me.taskmanager.activity.MainActivity;
 import me.taskmanager.adapter.TaskAdapter;
-import me.taskmanager.database.ProjectRepository;
-import me.taskmanager.database.TaskRepository;
+import androidx.lifecycle.ViewModelProvider;
 import me.taskmanager.model.Task;
-import me.taskmanager.preferences.UserPreferencesManager;
+import me.taskmanager.viewmodel.CalendarViewModel;
 
 public class CalendarFragment extends Fragment implements TaskAdapter.OnTaskClickListener {
 
@@ -43,9 +42,7 @@ public class CalendarFragment extends Fragment implements TaskAdapter.OnTaskClic
     private RecyclerView rvTasks;
     private TextView tvEmptyTasks;
 
-    private TaskRepository taskRepository;
-    private ProjectRepository projectRepository;
-    private UserPreferencesManager preferencesManager;
+    private CalendarViewModel calendarViewModel;
 
     private Calendar currentMonthCal; // Controls displayed month grid
     private Calendar selectedDateCal; // Controls selected date highlights
@@ -64,11 +61,6 @@ public class CalendarFragment extends Fragment implements TaskAdapter.OnTaskClic
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-
-        // Repos and preferences
-        taskRepository = new TaskRepository(requireContext());
-        projectRepository = new ProjectRepository(requireContext());
-        preferencesManager = new UserPreferencesManager(requireContext());
 
         // Bind Views
         btnPrevMonth = view.findViewById(R.id.btn_prev_month);
@@ -99,6 +91,16 @@ public class CalendarFragment extends Fragment implements TaskAdapter.OnTaskClic
             updateSelectedTasksList();
         });
 
+        // Setup ViewModel
+        calendarViewModel = new ViewModelProvider(this).get(CalendarViewModel.class);
+        calendarViewModel.getUserTasksLiveData().observe(getViewLifecycleOwner(), tasks -> {
+            if (tasks != null) {
+                userTasks.clear();
+                userTasks.addAll(tasks);
+                rebuildCalendarGrid();
+            }
+        });
+
         // Load data and draw views
         loadUserDataAndRefresh();
     }
@@ -120,26 +122,9 @@ public class CalendarFragment extends Fragment implements TaskAdapter.OnTaskClic
     }
 
     private void loadUserDataAndRefresh() {
-        // 1. Fetch user-centric tasks
-        long currentUserId = preferencesManager.getCurrentUserId();
-        if (currentUserId == -1) return;
-
-        List<Task> allTasks = taskRepository.getAllTasks();
-        userTasks.clear();
-        for (Task t : allTasks) {
-            if (t.getProjectId() == null || t.getProjectId() == 0) {
-                if (t.getAssignedUserId() == null || t.getAssignedUserId() == currentUserId) {
-                    userTasks.add(t);
-                }
-            } else {
-                if (projectRepository.isUserMemberOfProject(t.getProjectId(), currentUserId)) {
-                    userTasks.add(t);
-                }
-            }
+        if (calendarViewModel != null) {
+            calendarViewModel.loadUserTasks();
         }
-
-        // 2. Refresh Calendar Grid
-        rebuildCalendarGrid();
     }
 
     private void rebuildCalendarGrid() {

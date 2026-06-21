@@ -18,6 +18,9 @@ import me.taskmanager.database.UserRepository;
 import me.taskmanager.model.User;
 import me.taskmanager.preferences.UserPreferencesManager;
 
+import androidx.lifecycle.ViewModelProvider;
+import me.taskmanager.viewmodel.LoginViewModel;
+
 /**
  * Login screen. Acts as the launcher activity.
  * If a session already exists, redirects immediately to MainActivity.
@@ -30,31 +33,28 @@ public class LoginActivity extends AppCompatActivity {
     private TextView tvError, tvRegisterLink;
     private ProgressBar progressBar;
 
-    private UserRepository userRepository;
-    private UserPreferencesManager prefsManager;
+    private LoginViewModel loginViewModel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        prefsManager = new UserPreferencesManager(this);
+        loginViewModel = new ViewModelProvider(this).get(LoginViewModel.class);
 
         // Apply dark mode preference on startup
-        if (prefsManager.isDarkModeEnabled()) {
+        if (loginViewModel.isDarkModeEnabled()) {
             androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES);
         } else {
             androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO);
         }
 
         // If already logged in, go straight to MainActivity
-        if (prefsManager.isLoggedIn()) {
+        if (loginViewModel.isAlreadyLoggedIn()) {
             goToMain();
             return;
         }
 
         setContentView(R.layout.activity_login);
-
-        userRepository = new UserRepository(this);
 
         tilUsername = findViewById(R.id.til_username);
         tilPassword = findViewById(R.id.til_password);
@@ -64,6 +64,17 @@ public class LoginActivity extends AppCompatActivity {
         tvError     = findViewById(R.id.tv_error);
         tvRegisterLink = findViewById(R.id.tv_register_link);
         progressBar = findViewById(R.id.progress_bar);
+
+        // Set up observers
+        loginViewModel.getLoginSuccessLiveData().observe(this, user -> {
+            if (user != null) {
+                goToMain();
+            }
+        });
+
+        loginViewModel.getLoginErrorLiveData().observe(this, this::showError);
+
+        loginViewModel.getIsLoadingLiveData().observe(this, this::setLoading);
 
         btnLogin.setOnClickListener(v -> attemptLogin());
 
@@ -101,21 +112,7 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
-        setLoading(true);
-
-        // Run on background thread
-        new Thread(() -> {
-            User user = userRepository.login(username, password);
-            runOnUiThread(() -> {
-                setLoading(false);
-                if (user != null) {
-                    prefsManager.saveSession(user.getId(), user.getUsername());
-                    goToMain();
-                } else {
-                    showError("Incorrect username or password");
-                }
-            });
-        }).start();
+        loginViewModel.login(username, password);
     }
 
     private void goToMain() {

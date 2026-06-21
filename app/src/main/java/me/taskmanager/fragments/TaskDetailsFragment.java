@@ -26,18 +26,15 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
+import androidx.lifecycle.ViewModelProvider;
 import me.taskmanager.R;
 import me.taskmanager.adapter.CommentAdapter;
 import me.taskmanager.adapter.ActivityLogAdapter;
-import me.taskmanager.database.CommentRepository;
-import me.taskmanager.database.ActivityLogRepository;
-import me.taskmanager.database.ProjectRepository;
-import me.taskmanager.database.TaskRepository;
 import me.taskmanager.model.Comment;
 import me.taskmanager.model.ActivityLog;
 import me.taskmanager.model.Task;
-import me.taskmanager.preferences.UserPreferencesManager;
 import me.taskmanager.utils.FileHelper;
+import me.taskmanager.viewmodel.TaskDetailsViewModel;
 
 public class TaskDetailsFragment extends Fragment {
 
@@ -61,12 +58,7 @@ public class TaskDetailsFragment extends Fragment {
     private TextView tvNoComments;
     private TextView tvNoActivity;
 
-    private TaskRepository taskRepository;
-    private CommentRepository commentRepository;
-    private ActivityLogRepository logRepository;
-    private ProjectRepository projectRepository;
-    private UserPreferencesManager preferencesManager;
-
+    private TaskDetailsViewModel taskDetailsViewModel;
     private FileHelper fileHelper;
     private Task task;
     private long taskId;
@@ -95,12 +87,6 @@ public class TaskDetailsFragment extends Fragment {
         tvNoComments = view.findViewById(R.id.tv_no_comments);
         tvNoActivity = view.findViewById(R.id.tv_no_activity);
 
-        // Initialize repository and helper
-        taskRepository = new TaskRepository(requireContext());
-        commentRepository = new CommentRepository(requireContext());
-        logRepository = new ActivityLogRepository(requireContext());
-        projectRepository = new ProjectRepository(requireContext());
-        preferencesManager = new UserPreferencesManager(requireContext());
         fileHelper = new FileHelper();
 
         // Setup RecyclerViews
@@ -117,8 +103,59 @@ public class TaskDetailsFragment extends Fragment {
         // Get task ID from arguments
         if (getArguments() != null && getArguments().containsKey("TASK_ID")) {
             taskId = getArguments().getLong("TASK_ID");
-            loadTask();
         }
+
+        // Setup ViewModel
+        taskDetailsViewModel = new ViewModelProvider(this).get(TaskDetailsViewModel.class);
+
+        // Observers
+        taskDetailsViewModel.getTaskLiveData().observe(getViewLifecycleOwner(), t -> {
+            if (t == null) {
+                Toast.makeText(requireContext(), "Task not found", Toast.LENGTH_SHORT).show();
+                requireActivity().getSupportFragmentManager().popBackStack();
+                return;
+            }
+            task = t;
+            displayTaskDetails(t);
+        });
+
+        taskDetailsViewModel.getCommentsLiveData().observe(getViewLifecycleOwner(), comments -> {
+            if (comments == null) return;
+            if (comments.isEmpty()) {
+                tvNoComments.setVisibility(View.VISIBLE);
+                rvComments.setVisibility(View.GONE);
+            } else {
+                tvNoComments.setVisibility(View.GONE);
+                rvComments.setVisibility(View.VISIBLE);
+
+                long currentUserId = taskDetailsViewModel.getCurrentUserId();
+                String role = taskDetailsViewModel.getUserRoleLiveData().getValue();
+                boolean isLeader = "Leader".equalsIgnoreCase(role);
+
+                CommentAdapter commentAdapter = new CommentAdapter(requireContext(), comments, currentUserId, isLeader, this::deleteComment);
+                rvComments.setAdapter(commentAdapter);
+            }
+        });
+
+        taskDetailsViewModel.getLogsLiveData().observe(getViewLifecycleOwner(), logs -> {
+            if (logs == null) return;
+            if (logs.isEmpty()) {
+                tvNoActivity.setVisibility(View.VISIBLE);
+                rvLogs.setVisibility(View.GONE);
+            } else {
+                tvNoActivity.setVisibility(View.GONE);
+                rvLogs.setVisibility(View.VISIBLE);
+
+                ActivityLogAdapter logAdapter = new ActivityLogAdapter(requireContext(), logs);
+                rvLogs.setAdapter(logAdapter);
+            }
+        });
+
+        taskDetailsViewModel.getAttachedFilesLiveData().observe(getViewLifecycleOwner(), files -> {
+            if (files != null) {
+                btnViewFiles.setEnabled(files.length > 0);
+            }
+        });
 
         // Set up button click listeners
         btnMarkComplete.setOnClickListener(v -> toggleTaskCompletion());
@@ -151,21 +188,14 @@ public class TaskDetailsFragment extends Fragment {
     }
 
     private void loadTask() {
-        task = taskRepository.getTaskById(taskId);
-        if (task != null) {
-            displayTaskDetails();
-            loadCommentsAndLogs();
-        } else {
-            Toast.makeText(requireContext(), "Task not found", Toast.LENGTH_SHORT).show();
-            requireActivity().getSupportFragmentManager().popBackStack();
-        }
+        taskDetailsViewModel.loadTask(taskId);
     }
 
-    private void displayTaskDetails() {
-        tvTitle.setText(task.getTitle());
+    private void displayTaskDetails(Task t) {
+        tvTitle.setText(t.getTitle());
 
         // Handle description
-        String description = task.getDescription();
+        String description = t.getDescription();
         if (description != null && !description.isEmpty()) {
             tvDescription.setText(description);
             tvDescription.setVisibility(View.VISIBLE);
@@ -174,9 +204,9 @@ public class TaskDetailsFragment extends Fragment {
         }
 
         // Format and display due date
-        if (task.getDueDate() > 0) {
+        if (t.getDueDate() > 0) {
             SimpleDateFormat sdf = new SimpleDateFormat("EEEE, MMMM d, yyyy 'at' HH:mm", Locale.getDefault());
-            String dueDateText = sdf.format(new Date(task.getDueDate()));
+            String dueDateText = sdf.format(new Date(t.getDueDate()));
             tvDueDate.setText(dueDateText);
             tvDueDate.setVisibility(View.VISIBLE);
         } else {
@@ -185,7 +215,7 @@ public class TaskDetailsFragment extends Fragment {
 
         // Display priority
         String priorityText;
-        switch (task.getPriority()) {
+        switch (t.getPriority()) {
             case 3:
                 priorityText = "High";
                 break;
@@ -199,53 +229,12 @@ public class TaskDetailsFragment extends Fragment {
         tvPriority.setText(priorityText);
 
         // Display status
-        if (task.isCompleted()) {
-            tvStatus.setText("Completed (" + task.getStatus() + ")");
+        if (t.isCompleted()) {
+            tvStatus.setText("Completed (" + t.getStatus() + ")");
             btnMarkComplete.setText("Mark Incomplete");
         } else {
-            tvStatus.setText("Pending (" + task.getStatus() + ")");
+            tvStatus.setText("Pending (" + t.getStatus() + ")");
             btnMarkComplete.setText("Mark Complete");
-        }
-
-        // Check for attached files
-        File[] attachedFiles = fileHelper.getTaskFiles(requireContext(), taskId);
-        btnViewFiles.setEnabled(attachedFiles.length > 0);
-    }
-
-    private void loadCommentsAndLogs() {
-        long currentUserId = preferencesManager.getCurrentUserId();
-        if (currentUserId == -1) return;
-
-        // 1. Comments
-        List<Comment> comments = commentRepository.getCommentsForTask(taskId);
-        if (comments.isEmpty()) {
-            tvNoComments.setVisibility(View.VISIBLE);
-            rvComments.setVisibility(View.GONE);
-        } else {
-            tvNoComments.setVisibility(View.GONE);
-            rvComments.setVisibility(View.VISIBLE);
-
-            boolean isLeader = false;
-            if (task.getProjectId() != null && task.getProjectId() > 0) {
-                String role = projectRepository.getMemberRole(task.getProjectId(), currentUserId);
-                isLeader = "Leader".equalsIgnoreCase(role);
-            }
-
-            CommentAdapter commentAdapter = new CommentAdapter(requireContext(), comments, currentUserId, isLeader, this::deleteComment);
-            rvComments.setAdapter(commentAdapter);
-        }
-
-        // 2. Logs
-        List<ActivityLog> logs = logRepository.getLogsForTask(taskId);
-        if (logs.isEmpty()) {
-            tvNoActivity.setVisibility(View.VISIBLE);
-            rvLogs.setVisibility(View.GONE);
-        } else {
-            tvNoActivity.setVisibility(View.GONE);
-            rvLogs.setVisibility(View.VISIBLE);
-
-            ActivityLogAdapter logAdapter = new ActivityLogAdapter(requireContext(), logs);
-            rvLogs.setAdapter(logAdapter);
         }
     }
 
@@ -256,19 +245,13 @@ public class TaskDetailsFragment extends Fragment {
             return;
         }
 
-        long currentUserId = preferencesManager.getCurrentUserId();
-        if (currentUserId == -1) return;
-
-        Comment newComment = new Comment(taskId, currentUserId, content);
-        long result = commentRepository.insertComment(newComment);
-        if (result > 0) {
-            // Log audit trail
-            logRepository.insertLog(currentUserId, "added comment: \"" + content + "\"", "Task", taskId);
-            etNewComment.setText("");
-            loadCommentsAndLogs();
-        } else {
-            Toast.makeText(requireContext(), "Failed to add comment", Toast.LENGTH_SHORT).show();
-        }
+        taskDetailsViewModel.postComment(taskId, content, (success, message) -> {
+            if (success) {
+                etNewComment.setText("");
+            } else {
+                Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private void deleteComment(Comment comment) {
@@ -276,37 +259,21 @@ public class TaskDetailsFragment extends Fragment {
                 .setTitle("Delete Comment")
                 .setMessage("Are you sure you want to delete this comment?")
                 .setPositiveButton("Delete", (dialog, which) -> {
-                    boolean success = commentRepository.deleteComment(comment.getId());
-                    if (success) {
-                        long currentUserId = preferencesManager.getCurrentUserId();
-                        logRepository.insertLog(currentUserId, "deleted a comment", "Task", taskId);
-                        loadCommentsAndLogs();
-                    } else {
-                        Toast.makeText(requireContext(), "Failed to delete comment", Toast.LENGTH_SHORT).show();
-                    }
+                    taskDetailsViewModel.deleteComment(taskId, comment, (success, message) -> {
+                        if (!success) {
+                            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
+                        }
+                    });
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
     private void toggleTaskCompletion() {
-        boolean nextState = !task.isCompleted();
-        task.setCompleted(nextState);
-        int rowsAffected = taskRepository.updateTask(task);
-
-        if (rowsAffected > 0) {
-            long currentUserId = preferencesManager.getCurrentUserId();
-            String actionMessage = nextState ? "marked task as completed" : "marked task as incomplete";
-            logRepository.insertLog(currentUserId, actionMessage, "Task", taskId);
-
-            displayTaskDetails();
-            loadCommentsAndLogs();
-
-            String message = nextState ? "Task marked as complete" : "Task marked as incomplete";
+        if (task == null) return;
+        taskDetailsViewModel.toggleTaskCompletion(task, (success, message) -> {
             Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
-        } else {
-            Toast.makeText(requireContext(), "Failed to update task", Toast.LENGTH_SHORT).show();
-        }
+        });
     }
 
     private void navigateToEditTask() {
@@ -329,9 +296,8 @@ public class TaskDetailsFragment extends Fragment {
     }
 
     private void viewAttachedFiles() {
-        File[] files = fileHelper.getTaskFiles(requireContext(), taskId);
-
-        if (files.length == 0) {
+        File[] files = taskDetailsViewModel.getAttachedFilesLiveData().getValue();
+        if (files == null || files.length == 0) {
             Toast.makeText(requireContext(), "No files attached", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -405,22 +371,8 @@ public class TaskDetailsFragment extends Fragment {
                     requireActivity().getContentResolver().takePersistableUriPermission(uri, takeFlags);
                 }
                 
-                fileHelper.saveFile(requireContext(), uri, taskId, new FileHelper.FileOperationCallback() {
-                    @Override
-                    public void onSuccess(String filePath) {
-                        Toast.makeText(requireContext(), "File attached successfully", Toast.LENGTH_SHORT).show();
-                        
-                        long currentUserId = preferencesManager.getCurrentUserId();
-                        logRepository.insertLog(currentUserId, "attached file: " + uri.getLastPathSegment(), "Task", taskId);
-                        
-                        btnViewFiles.setEnabled(true);
-                        loadCommentsAndLogs();
-                    }
-
-                    @Override
-                    public void onError(String errorMessage) {
-                        Toast.makeText(requireContext(), errorMessage, Toast.LENGTH_SHORT).show();
-                    }
+                taskDetailsViewModel.saveAttachedFile(taskId, uri, (success, message) -> {
+                    Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
                 });
             }
         }

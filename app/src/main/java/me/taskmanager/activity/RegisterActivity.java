@@ -15,6 +15,9 @@ import com.google.android.material.textfield.TextInputLayout;
 import me.taskmanager.R;
 import me.taskmanager.database.UserRepository;
 
+import androidx.lifecycle.ViewModelProvider;
+import me.taskmanager.viewmodel.RegisterViewModel;
+
 /**
  * Registration screen for creating a new account.
  * After successful registration, redirects to LoginActivity.
@@ -27,14 +30,14 @@ public class RegisterActivity extends AppCompatActivity {
     private TextView tvError, tvLoginLink;
     private ProgressBar progressBar;
 
-    private UserRepository userRepository;
+    private RegisterViewModel registerViewModel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_register);
 
-        userRepository = new UserRepository(this);
+        registerViewModel = new ViewModelProvider(this).get(RegisterViewModel.class);
 
         // Back button
         findViewById(R.id.btn_back).setOnClickListener(v -> finish());
@@ -55,6 +58,22 @@ public class RegisterActivity extends AppCompatActivity {
         tvError      = findViewById(R.id.tv_error);
         tvLoginLink  = findViewById(R.id.tv_login_link);
         progressBar  = findViewById(R.id.progress_bar);
+
+        // Setup observers
+        registerViewModel.getRegisterResultLiveData().observe(this, result -> {
+            if (result != null) {
+                if (result > 0) {
+                    showSuccessAndLogin();
+                } else if (result == -2) {
+                    tilUsername.setError("Username already taken");
+                    etUsername.requestFocus();
+                } else {
+                    showError("Registration failed. Please try again.");
+                }
+            }
+        });
+
+        registerViewModel.getIsLoadingLiveData().observe(this, this::setLoading);
 
         btnRegister.setOnClickListener(v -> attemptRegister());
 
@@ -118,29 +137,7 @@ public class RegisterActivity extends AppCompatActivity {
             return;
         }
 
-        setLoading(true);
-
-        final String finalUsername = username;
-        final String finalPassword = password;
-        final String finalFullName = fullName;
-        final String finalEmail    = email;
-
-        new Thread(() -> {
-            long result = userRepository.registerUser(
-                    finalUsername, finalPassword, finalFullName, finalEmail);
-            runOnUiThread(() -> {
-                setLoading(false);
-                if (result > 0) {
-                    // Registration successful
-                    showSuccessAndLogin();
-                } else if (result == -2) {
-                    tilUsername.setError("Username already taken");
-                    etUsername.requestFocus();
-                } else {
-                    showError("Registration failed. Please try again.");
-                }
-            });
-        }).start();
+        registerViewModel.register(username, password, fullName, email);
     }
 
     private void showSuccessAndLogin() {
